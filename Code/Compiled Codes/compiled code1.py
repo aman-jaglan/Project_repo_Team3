@@ -49,9 +49,13 @@ columns_to_drop = ['host_response_time','district','host_response_rate','host_ac
                    'review_scores_accuracy','review_scores_cleanliness','review_scores_checkin','review_scores_communication','review_scores_location',
                    'review_scores_value']
 data.drop(columns = columns_to_drop, inplace = True)
+exchange_rates = {'Paris': 1.08, 'Sydney': 0.66, 'NewYork': 1, 'Rome': 1.08, 'Rio de Janeiro': 0.2, 'Istanbul':0.035, 'Mexico City': 0.057, 'Bangkok': 0.028, 'Cape Town': 0.052, 'Hong Kong': 0.13   } 
+
+data['price_usd'] = data.apply(lambda row: row['price'] * exchange_rates.get(row['city'], 1), axis=1)
 
 # %%
 data_cleaned = data.dropna()
+
 # %%
 data_cleaned.T
 # %%
@@ -64,17 +68,18 @@ print("Basic Statistics:")
 print(data_cleaned.describe())
 
 # %%
-main_label = 'price'
+main_label = 'price_usd'
 # Exclude 1% of smallest and 1% of highest prices
 P = np.percentile(data_cleaned[main_label], [1, 99])
 data_cleaned = data_cleaned[(data_cleaned[main_label] > P[0]) & (data_cleaned[main_label] < P[1])]
+
 # %%
 print(data_cleaned.describe())
 
 # %%
 # the corr heatmap
 corr_all = data_cleaned.corr(numeric_only=True)
-corr_all['price']
+corr_all['price_usd']
 
 # %%
 # EDA
@@ -101,18 +106,18 @@ fig.update_layout(yaxis=dict(categoryorder='total ascending'), xaxis_title='Numb
 fig.show()
 
 # %%
-fig = px.scatter_mapbox(data_cleaned, lat='latitude', lon='longitude', text='city', hover_name='city', size='price',
+fig = px.scatter_mapbox(data_cleaned, lat='latitude', lon='longitude', text='city', hover_name='city', size='price_usd',
                         size_max=40, zoom=1, title='Price Comparison and distribution of hotels across cities')
 
 fig.update_layout(mapbox_style="carto-positron", showlegend=False, height=600)
 
 fig.show()
 # %%
-filtered_df = data[data['price'] > 100000]
+filtered_df = data[data['price_usd'] > 100000]
 fig = px.treemap(
     filtered_df,
     path=['city', 'name', 'amenities'],
-    values='price',
+    values='price_usd',
     hover_data=['neighbourhood'],
     title='Hotels which have Price more than > 100000',
     color_discrete_sequence=px.colors.diverging.RdBu,
@@ -127,8 +132,8 @@ fig.update_layout(margin = dict(t=50, l=25, r=25, b=25))
 
 fig.show()
 # %%
-highPrice = data[data['price'] > 100000]
-lowPrice = data[data['price'] < 1000]
+highPrice = data[data['price_usd'] > 100000]
+lowPrice = data[data['price_usd'] < 1000]
 
 
 # Assuming df_high_price and df_low_price are your DataFrames with prices > 100k and < 1k respectively
@@ -170,7 +175,7 @@ plt.show()
 categorical_vars = ['room_type', 'host_is_superhost', 'instant_bookable']
 for var in categorical_vars:
     plt.figure(figsize=(10, 6))
-    sns.boxplot(x=var, y='price', data=data)
+    sns.boxplot(x=var, y='price_usd', data=data)
     plt.yscale('log') # using log scaled y axis to have a good look on boxplot
     plt.title(f'Boxplot of Price by {var}')
     plt.show()
@@ -213,17 +218,17 @@ airbnb_gdf.crs = "EPSG:4326"
 airbnb_zone = gpd.sjoin(airbnb_gdf, ny_zone, how="inner", predicate="within")
 
 # Calculate Average Prices by the 'POLY_ID', explicitly setting numeric_only
-meanprice = airbnb_zone.groupby('POLY_ID').mean(numeric_only=True)['price']
+meanprice = airbnb_zone.groupby('POLY_ID').mean(numeric_only=True)['price_usd']
 meanprice = meanprice.to_frame()
 
 # Merge the average prices back into the ny_zone GeoDataFrame
 final_zone = ny_zone.merge(meanprice, how='left', on='POLY_ID')
-final_zone['price'].fillna(final_zone['price'].mean(), inplace=True)
+final_zone['price_usd'].fillna(final_zone['price_usd'].mean(), inplace=True)
 
 # Plot the distribution of Average Price in New York
 def pricemap_ny():
     f, ax = plt.subplots(figsize=(10, 7))
-    final_zone.plot(ax=ax, column='price', cmap='OrRd', scheme='quantiles', legend=True)
+    final_zone.plot(ax=ax, column='price_usd', cmap='OrRd', scheme='quantiles', legend=True)
     ax.axis('off')
     ax.set_title('New York Airbnb Average Price Distribution', fontdict={'fontsize': '20', 'fontweight': '3'})
     # Adjust the legend size and location
@@ -271,7 +276,7 @@ data_cleaned.T
 X = data_cleaned[['host_is_superhost','room_type', 'accommodates','bedrooms', 'neighbourhood',
                 'log10_minimum_nights','instant_bookable','amenities',
                 'log10_host_total_listings_count']]
-y = data_cleaned['price']
+y = data_cleaned['price_usd']
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 X_train
 
@@ -558,6 +563,7 @@ print('XGBoost Regressor RMSE:', rmse)
 print('R-squared:', r2)
 
 # %%
+data_cleaned.drop(columns = 'price', inplace = True)
 y = data_cleaned[main_label].values.reshape(-1,)
 X = data_cleaned.drop([main_label], axis=1)
 cat_cols = data_cleaned.select_dtypes(include=['object']).columns
