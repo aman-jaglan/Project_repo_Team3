@@ -349,7 +349,7 @@ y = df[main_label].values.reshape(-1,)
 X = df.drop([main_label], axis=1)
 cat_cols = df.select_dtypes(include=['object']).columns
 cat_cols_idx = [list(X.columns).index(c) for c in cat_cols]
-X_train,X_test,y_train,y_test = train_test_split(X, y, test_size=0.5, random_state=0)
+X_train,X_test,y_train,y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 X_train.shape, X_test.shape, y_train.shape, y_test.shape
 
 # initialize Pool
