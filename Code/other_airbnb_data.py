@@ -4,23 +4,24 @@ import pandas as pd
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import OneHotEncoder
-from sklearn.preprocessing import StandardScaler
 from sklearn.compose import ColumnTransformer
 from sklearn.metrics import mean_squared_error
-# from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score
 from sklearn.ensemble import RandomForestRegressor
-# from sklearn.ensemble import GradientBoostingRegressor
-# from sklearn.linear_model import ElasticNet
-# from sklearn.svm import SVR
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.linear_model import ElasticNet
+from sklearn.svm import SVR
 from xgboost import XGBRegressor
-# from sklearn.preprocessing import OrdinalEncoder
 from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import Pipeline,make_pipeline
 from sklearn.tree import DecisionTreeRegressor
 from scipy.stats import ttest_ind, f_oneway 
 from feature_engine.encoding import RareLabelEncoder
+from catboost import Pool, CatBoostRegressor
+from sklearn.model_selection import GridSearchCV, train_test_split
+from sklearn.metrics import mean_squared_error
+from sklearn.linear_model import Lasso
 
 # %%
 data = pd.read_csv("train.csv")
@@ -30,6 +31,7 @@ data
 data.columns
 # %%
 data.isna().sum()
+data.describe()
 # %%
 main_label = 'price'
 # Exclude 1% of smallest and 1% of highest prices
@@ -193,8 +195,6 @@ print('XGBoost Regressor RMSE:', rmse)
 print('R-squared:', r2)
 
 # %%
-from sklearn.linear_model import Lasso
-
 # Define the preprocessor
 preprocessor = ColumnTransformer(
     transformers=[
@@ -224,7 +224,6 @@ r2_lasso = r2_score(y_test, y_pred_lasso)
 print('Lasso Model RMSE:', rmse_lasso)
 print("Lasso Model R-squared:", r2_lasso)
 # %%
-from sklearn.svm import SVR
 
 # Define the preprocessor as before
 preprocessor = ColumnTransformer(
@@ -263,9 +262,87 @@ print('SVM Regressor RMSE:', rmse)
 print('R-squared:', r2)
 
 # %%
-from catboost import Pool, CatBoostRegressor
-from sklearn.model_selection import GridSearchCV, train_test_split
-from sklearn.metrics import mean_squared_error
+# Define the preprocessor
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('ord', OneHotEncoder(), ['neighbourhood', 'room_type'])
+    ])
+
+# Define the pipeline with Gradient Boosting Regressor
+gbr_pipeline = Pipeline(steps=[
+    ('preprocessor', preprocessor),
+    ('regressor', GradientBoostingRegressor(random_state=42))
+])
+
+# Define the parameter grid to search
+param_grid = {
+    'regressor__n_estimators': [100, 200],  # Number of boosting stages to perform
+    'regressor__learning_rate': [0.01, 0.1],  # Learning rate shrinks the contribution of each tree
+    'regressor__max_depth': [3, 4, 5],  # Maximum depth of the individual regression estimators
+    'regressor__min_samples_split': [2, 3],  # The minimum number of samples required to split an internal node
+    'regressor__min_samples_leaf': [1, 2]  # The minimum number of samples required to be at a leaf node
+}
+
+# Create the GridSearchCV object
+grid_search = GridSearchCV(gbr_pipeline, param_grid, cv=5, scoring='neg_mean_squared_error', n_jobs=-1, verbose=2)
+
+# Fit the model
+grid_search.fit(X_train, y_train)
+
+# Best estimator found by grid search
+print('Best parameters found:', grid_search.best_params_)
+
+# Predict and evaluate
+y_pred_gbr = grid_search.predict(X_test)
+
+# Calculate RMSE and R-squared
+rmse_gbr = mean_squared_error(y_test, y_pred_gbr, squared=False)
+r2_gbr = r2_score(y_test, y_pred_gbr)
+
+print('Gradient Boosting Regressor RMSE:', rmse_gbr)
+print('Gradient Boosting Regressor R-squared:', r2_gbr)
+
+# %%
+# Define the preprocessor
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('ord', OneHotEncoder(), ['neighbourhood', 'room_type'])
+    ])
+
+# Define the pipeline with Elastic Net regression
+elastic_net_pipeline = Pipeline(steps=[
+    ('preprocessor', preprocessor),
+    ('regressor', ElasticNet(random_state=42))
+])
+
+# Define the parameter grid to search
+param_grid = {
+    'regressor__alpha': [0.1, 1, 10],  # Constant that multiplies the penalty terms
+    'regressor__l1_ratio': [0.1, 0.5, 0.9],  # The ElasticNet mixing parameter
+    'regressor__max_iter': [1000]  # Number of iterations to converge
+}
+
+# Create the GridSearchCV object
+grid_search = GridSearchCV(elastic_net_pipeline, param_grid, cv=5, scoring='neg_mean_squared_error', n_jobs=-1, verbose=2)
+
+# Fit the model
+grid_search.fit(X_train, y_train)
+
+# Best estimator found by grid search
+print('Best parameters found:', grid_search.best_params_)
+
+# Predict and evaluate
+y_pred_elastic_net = grid_search.predict(X_test)
+
+# Calculate RMSE and R-squared
+rmse_elastic_net = mean_squared_error(y_test, y_pred_elastic_net, squared=False)
+r2_elastic_net = r2_score(y_test, y_pred_elastic_net)
+
+print('Elastic Net RMSE:', rmse_elastic_net)
+print('Elastic Net R-squared:', r2_elastic_net)
+
+
+# %%
 
 # initialize data
 y = df[main_label].values.reshape(-1,)
