@@ -649,39 +649,33 @@ new_york_data.info
 new_york_data.to_csv('new_york_data.csv',index=False)
 
 # %%
-columns_to_drop = ['host_response_time','host_response_rate','host_acceptance_rate']
+columns_to_drop = ['host_response_time','district','host_response_rate','host_acceptance_rate','review_scores_rating',
+                   'review_scores_accuracy','review_scores_cleanliness','review_scores_checkin','review_scores_communication','review_scores_location',
+                   'review_scores_value']
 new_york_data.drop(columns = columns_to_drop, inplace = True)
-# %%
-def fill_null_with_rounded_average(data, column_name):
-    """
-    Fill null values in the specified column with the rounded average.
-
-    Parameters:
-    - data: DataFrame
-    - column_name: str, the name of the column with null values to be filled
-
-    Returns:
-    - None (modifies the DataFrame in place)
-    """
-    average_value = data[column_name].mean()
-    data[column_name].fillna(average_value, inplace=True)
-    data[column_name] = data[column_name].round()
-
-fill_null_with_rounded_average(new_york_data, 'review_scores_rating')
-fill_null_with_rounded_average(new_york_data, 'review_scores_accuracy')
-fill_null_with_rounded_average(new_york_data, 'review_scores_cleanliness')
-fill_null_with_rounded_average(new_york_data, 'review_scores_checkin')
-fill_null_with_rounded_average(new_york_data, 'review_scores_communication')
-fill_null_with_rounded_average(new_york_data, 'review_scores_location')
-fill_null_with_rounded_average(new_york_data, 'review_scores_value')
 # %%
 new_york_data = new_york_data.dropna()
 
-#%%
-new_york_data
+main_label = 'price'
+# Exclude 1% of smallest and 1% of highest prices
+P = np.percentile(new_york_data[main_label], [1, 99])
+data_cleaned = new_york_data[(new_york_data[main_label] > P[0]) & (new_york_data[main_label] < P[1])]
+
+# %%
+data_cleaned.columns
+# log10-transform columns and group for larger bins
+for col in ['minimum_nights', 'host_total_listings_count']:
+    data_cleaned[f'log10_{col}'] = data_cleaned[col].apply(lambda x: 1/5*round(5*np.log10(1+x)))
+    data_cleaned = data_cleaned.drop([col], axis=1)
+# set up the rare label encoder limiting number of categories to max_n_categories
+for col in ['neighbourhood', 'room_type','host_is_superhost','instant_bookable']:
+    encoder = RareLabelEncoder(n_categories=1, max_n_categories=70, replace_with='Other', tol=20/data_cleaned.shape[0])
+    data_cleaned[col] = encoder.fit_transform(data_cleaned[[col]])
+
+data_cleaned.T
 # %%
 # the corr heatmap
-corr_all = new_york_data.corr(numeric_only=True)
+corr_all = data_cleaned.corr(numeric_only=True)
 corr_all['price']
 
 # %%
@@ -695,8 +689,10 @@ ax.set_title("Correlation Heatmap")
 
 plt.show()
 # %%
-X = new_york_data[['district']]
-y = new_york_data['price']
+X = data_cleaned[['host_is_superhost','room_type', 'accommodates','bedrooms', 'neighbourhood',
+                'log10_minimum_nights','instant_bookable','amenities',
+                'log10_host_total_listings_count']]
+y = data_cleaned['price']
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 X_train
 
@@ -739,7 +735,8 @@ onehot_encoder = OneHotEncoder(handle_unknown='ignore')
 # linear_regression baseline model
 preprocessor = ColumnTransformer(
     transformers=[
-        ('num', StandardScaler(), ['review_scores_value'])
+        ('num', StandardScaler(), ['accommodates','bedrooms']),
+        ('ord', OneHotEncoder(), ['neighbourhood', 'room_type','host_is_superhost','instant_bookable'])
     ])
 
 # Pipeline
@@ -759,7 +756,8 @@ print("R-squared:", r2)
 # Define the preprocessor
 preprocessor = ColumnTransformer(
     transformers=[
-                ('num', StandardScaler(),['review_scores_value'])])
+                ('num', StandardScaler(), ['accommodates','bedrooms']),
+                ('ord', OneHotEncoder(), ['neighbourhood', 'room_type','host_is_superhost','instant_bookable'])])
 
 # Pipeline with XGBoost regressor
 xgb_model = Pipeline(steps=[('preprocessor', preprocessor),
@@ -799,8 +797,8 @@ print('R-squared:', r2)
 # Define the preprocessor as part of the pipeline
 preprocessor = ColumnTransformer(
     transformers=[
-                ('num', StandardScaler(), ['accommodates', 'bedrooms']),
-                ('ord', OneHotEncoder(), ['room_type'])
+                ('num', StandardScaler(), ['accommodates','bedrooms']),
+                ('ord', OneHotEncoder(), ['neighbourhood', 'room_type','host_is_superhost','instant_bookable'])
     ])
 
 # Pipeline with decision tree regressor
@@ -832,21 +830,16 @@ r2 = r2_score(y_test, y_pred)
 
 print('Decision Tree RMSE:', rmse)
 print('R-squared:', r2)
+
 # %%
-# Pipeline
-baseline_model = LinearRegression()
-
-baseline_model.fit(X_train, y_train)
-y_pred = baseline_model.predict(X_test)
-
-rmse = np.sqrt(mean_squared_error(y_test,y_pred))
-print('baseline_model RMSE:', rmse)
-r2 = r2_score(y_test,y_pred)
-print("R-squared:", r2)
-# %%
-
-# Pipeline with XGBoost regressor
-xgb_model = XGBRegressor()
+preprocessor = ColumnTransformer(
+    transformers=[
+                ('num', StandardScaler(), ['accommodates','bedrooms']),
+                ('ord', OneHotEncoder(), ['neighbourhood', 'room_type','host_is_superhost','instant_bookable'])
+    ])
+# Pipeline with decision tree regressor
+xgb_model = Pipeline(steps=[('preprocessor', preprocessor),
+                             ('regressor', XGBRegressor())])
 
 # Parameter grid for XGBoost
 param_grid = {
@@ -882,8 +875,8 @@ from sklearn.linear_model import Lasso
 # Define the preprocessor
 preprocessor = ColumnTransformer(
     transformers=[
-        ('num', StandardScaler(), ['accommodates', 'bedrooms']),
-        ('ord', OneHotEncoder(), ['room_type'])])
+        ('num', StandardScaler(), ['accommodates','bedrooms']),
+                ('ord', OneHotEncoder(), ['neighbourhood', 'room_type','host_is_superhost','instant_bookable'])])
 
 # Define the pipeline with Lasso regression
 lasso_pipeline = Pipeline(steps=[('preprocessor', preprocessor),
@@ -916,8 +909,8 @@ from sklearn.model_selection import GridSearchCV
 # Define the preprocessor as before
 preprocessor = ColumnTransformer(
     transformers=[
-        ('num', StandardScaler(), ['accommodates', 'bedrooms']),
-        ('ord', OneHotEncoder(), ['room_type'])])
+                ('num', StandardScaler(), ['accommodates','bedrooms']),
+                ('ord', OneHotEncoder(), ['neighbourhood', 'room_type','host_is_superhost','instant_bookable'])])
 
 
 # Define the pipeline with KNN regressor
@@ -949,5 +942,39 @@ r2 = r2_score(y_test, y_pred)
 
 print('Grid Search KNN Model RMSE:', rmse)
 print('Grid Search KNN Model R-squared:', r2)
+
+# %%
+y = data_cleaned['price'].values.reshape(-1,)
+X = data_cleaned.drop(['price'], axis=1)
+cat_cols = data_cleaned.select_dtypes(include=['object']).columns
+cat_cols_idx = [list(X.columns).index(c) for c in cat_cols]
+X_train,X_test,y_train,y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+X_train.shape, X_test.shape, y_train.shape, y_test.shape
+
+# initialize Pool
+train_pool = Pool(X_train, 
+                  y_train, 
+                  cat_features=cat_cols_idx)
+test_pool = Pool(X_test,
+                 y_test,
+                 cat_features=cat_cols_idx)
+# specify the training parameters 
+model = CatBoostRegressor(iterations=1000, 
+                          depth=7,
+                          verbose=0,
+                          learning_rate=0.01, 
+                          loss_function='RMSE')
+# train the model
+model.fit(train_pool)
+
+# Predict using the best model
+y_pred = model.predict(X_test)
+
+# Calculate RMSE and R-squared
+rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+r2 = r2_score(y_test, y_pred)
+
+print('catboost Regressor RMSE:', rmse)
+print('R-squared:', r2)
 
 # %%
