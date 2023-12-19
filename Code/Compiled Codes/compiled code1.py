@@ -2,7 +2,9 @@
 # %% [markdown]
 # This is the project code for Team 3
 
-#%%Initalising and loading the data set
+#%% 
+# All the packages we are going to use
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt 
@@ -35,30 +37,36 @@ from catboost import Pool, CatBoostRegressor
 from sklearn.linear_model import Lasso
 
 # %%
+# Load the airbnb listing file, and read them into df 'data'
 data = pd.read_csv("Listings.csv", encoding='unicode_escape', low_memory=False)
-
+# See the first 5 row of the data
 data.head(5)
 # %%
+# check the columns of the data
 data.columns
 # %%
+# check if there are null values in each columns
 data.isna().sum()
 # %%
-data.shape
-# %%
+# Drop columns that are irrelavent to the price and the columns with too many missing values
 columns_to_drop = ['host_response_time','district','host_response_rate','host_acceptance_rate','review_scores_rating',
                    'review_scores_accuracy','review_scores_cleanliness','review_scores_checkin','review_scores_communication','review_scores_location',
                    'review_scores_value']
 data.drop(columns = columns_to_drop, inplace = True)
+# Convert all currency in to USD according to different cities
 exchange_rates = {'Paris': 1.08, 'Sydney': 0.66, 'NewYork': 1, 'Rome': 1.08, 'Rio de Janeiro': 0.2, 'Istanbul':0.035, 'Mexico City': 0.057, 'Bangkok': 0.028, 'Cape Town': 0.052, 'Hong Kong': 0.13   } 
 
 data['price_usd'] = data.apply(lambda row: row['price'] * exchange_rates.get(row['city'], 1), axis=1)
 
 # %%
+# Drop all rows with null values and store it in to df 'data_cleaned'
 data_cleaned = data.dropna()
 
 # %%
+# see the structure of data
 data_cleaned.T
 # %%
+# see the information of data and convert it into csv file
 data_cleaned.info()
 data_cleaned.to_csv('air_bnb.csv',index=False)
 
@@ -74,15 +82,13 @@ P = np.percentile(data_cleaned[main_label], [1, 99])
 data_cleaned = data_cleaned[(data_cleaned[main_label] > P[0]) & (data_cleaned[main_label] < P[1])]
 
 # %%
-print(data_cleaned.describe())
-
-# %%
-# the corr heatmap
+# calculate the corr of price with other numeric values
 corr_all = data_cleaned.corr(numeric_only=True)
 corr_all['price_usd']
 
 # %%
 # EDA
+# make a corr heatmap with all of the numeric values
 sns.set(font_scale=1.5)
 
 fig, ax = plt.subplots(figsize=(30, 30))
@@ -93,6 +99,7 @@ ax.set_title("Correlation Heatmap")
 plt.show()
 
 # %%
+# make a barchart to see number of hotels of each city
 city_hotel_counts = data_cleaned['city'].value_counts().reset_index()
 city_hotel_counts.columns = ['city', 'number_of_hotels']
 
@@ -106,6 +113,7 @@ fig.update_layout(yaxis=dict(categoryorder='total ascending'), xaxis_title='Numb
 fig.show()
 
 # %%
+# make a detailed geometric scatter plots showing information of each property
 fig = px.scatter_mapbox(data_cleaned, lat='latitude', lon='longitude', text='city', hover_name='city', size='price_usd',
                         size_max=40, zoom=1, title='Price Comparison and distribution of hotels across cities')
 
@@ -113,6 +121,7 @@ fig.update_layout(mapbox_style="carto-positron", showlegend=False, height=600)
 
 fig.show()
 # %%
+# plot a tree map to see the hotel price which have more than 100000
 filtered_df = data[data['price_usd'] > 100000]
 fig = px.treemap(
     filtered_df,
@@ -132,6 +141,7 @@ fig.update_layout(margin = dict(t=50, l=25, r=25, b=25))
 
 fig.show()
 # %%
+# Set highprice and lowprice
 highPrice = data[data['price_usd'] > 100000]
 lowPrice = data[data['price_usd'] < 1000]
 
@@ -239,6 +249,7 @@ def pricemap_ny():
     plt.show()
 
 pricemap_ny()
+# The downtown area and long island area have high average airbnb price.
 
 # %%
 #plot the loction of airbnb new york
@@ -252,6 +263,7 @@ def location():
   plt.legend(['Airbnb Hotel location'])
 
 location()
+# Most of the properties in New York are distributed in downtown area.
 
 # %%
 # Now it is time for modeling!
@@ -272,7 +284,8 @@ for col in ['neighbourhood', 'room_type','host_is_superhost','instant_bookable']
 
 data_cleaned.T
 
-# %%'amenities',
+# %%
+# select values and target variable, use train test split at ratio 0.2
 X = data_cleaned[['host_is_superhost','room_type', 'accommodates','bedrooms', 'neighbourhood',
                 'log10_minimum_nights','instant_bookable','amenities',
                 'log10_host_total_listings_count']]
@@ -281,7 +294,7 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_
 X_train
 
 # %%
-
+# feature engineering: do tf-idf vector matrix to the 'amenities', making amenities into 10 top words that has its weight in each amenities lists of words.
 text_features = ['amenities']
 # Create a pipeline for text processing
 text_ff = Pipeline([
@@ -312,22 +325,26 @@ X_train.drop('amenities', axis=1, inplace=True)
 X_test.drop('amenities', axis=1, inplace=True)
 
 # %%
+# We first need a baseline model
 # linear_regression baseline model
 preprocessor = ColumnTransformer(
     transformers=[
-        ('num', StandardScaler(), ['accommodates','bedrooms']),
-        ('ord', OneHotEncoder(), ['neighbourhood', 'room_type','host_is_superhost','instant_bookable'])
+        ('num', StandardScaler(), ['accommodates','bedrooms']), # standardscale all numeric variables
+        ('ord', OneHotEncoder(), ['neighbourhood', 'room_type','host_is_superhost','instant_bookable']) # one-hot encoding every categorical variables
     ])
 
-# Pipeline
+# use Pipeline to combine all the steps
 baseline_model = Pipeline(steps=[('preprocessor', preprocessor),
                         ('regressor', LinearRegression())])
-
+# fit the model into trainning data
 baseline_model.fit(X_train, y_train)
+# predict using test data
 y_pred = baseline_model.predict(X_test)
 
+# calculate rmse
 rmse = np.sqrt(mean_squared_error(y_test,y_pred))
 print('baseline_model RMSE:', rmse)
+# calculate r-squared
 r2 = r2_score(y_test,y_pred)
 print("R-squared:", r2)
 
@@ -337,8 +354,8 @@ print("R-squared:", r2)
 # Define the preprocessor as part of the pipeline
 preprocessor = ColumnTransformer(
     transformers=[
-        ('num', StandardScaler(), ['accommodates','bedrooms']),
-        ('ord', OneHotEncoder(), ['neighbourhood', 'room_type','host_is_superhost','instant_bookable'])
+        ('num', StandardScaler(), ['accommodates','bedrooms']),# standardscale all numeric variables
+        ('ord', OneHotEncoder(), ['neighbourhood', 'room_type','host_is_superhost','instant_bookable'])# one-hot encoding every categorical variables
     ])
 
 # Pipeline with decision tree regressor
@@ -372,12 +389,13 @@ print('Decision Tree RMSE:', rmse)
 print('R-squared:', r2)
 
 # %%
+# RandomForestRegressor model
 
 # Define the preprocessor as before
 preprocessor = ColumnTransformer(
     transformers=[
-        ('num', StandardScaler(), ['accommodates','bedrooms']),
-        ('ord', OneHotEncoder(), ['neighbourhood', 'room_type','host_is_superhost','instant_bookable'])
+        ('num', StandardScaler(), ['accommodates','bedrooms']),# standardscale all numeric variables
+        ('ord', OneHotEncoder(), ['neighbourhood', 'room_type','host_is_superhost','instant_bookable'])# one-hot encoding every categorical variables
     ])
 
 # Define the pipeline with a random forest regressor
@@ -413,8 +431,8 @@ print('R-squared:', r2)
 # Define the preprocessor
 preprocessor = ColumnTransformer(
     transformers=[
-        ('num', StandardScaler(), ['accommodates','bedrooms']),
-        ('ord', OneHotEncoder(), ['neighbourhood', 'room_type','host_is_superhost','instant_bookable'])])
+        ('num', StandardScaler(), ['accommodates','bedrooms']),# standardscale all numeric variables
+        ('ord', OneHotEncoder(), ['neighbourhood', 'room_type','host_is_superhost','instant_bookable'])])# one-hot encoding every categorical variables
 
 # Define the pipeline with Lasso regression
 lasso_pipeline = Pipeline(steps=[('preprocessor', preprocessor),
@@ -441,11 +459,13 @@ print('Lasso Model RMSE:', rmse_lasso)
 print("Lasso Model R-squared:", r2_lasso)
 
 # %%
+# Gradient Boosting Regressor model
+
 # Define the preprocessor
 preprocessor = ColumnTransformer(
     transformers=[
-        ('num', StandardScaler(), ['accommodates','bedrooms']),
-        ('ord', OneHotEncoder(), ['neighbourhood', 'room_type','host_is_superhost','instant_bookable'])])
+        ('num', StandardScaler(), ['accommodates','bedrooms']),# standardscale all numeric variables
+        ('ord', OneHotEncoder(), ['neighbourhood', 'room_type','host_is_superhost','instant_bookable'])])# one-hot encoding every categorical variables
 
 # Define the pipeline with Gradient Boosting Regressor
 gbr_pipeline = Pipeline(steps=[
@@ -482,11 +502,12 @@ print('Gradient Boosting Regressor RMSE:', rmse_gbr)
 print('Gradient Boosting Regressor R-squared:', r2_gbr)
 
 # %%
+# Elastic Net model
 # Define the preprocessor
 preprocessor = ColumnTransformer(
     transformers=[
-        ('num', StandardScaler(), ['accommodates','bedrooms']),
-        ('ord', OneHotEncoder(), ['neighbourhood', 'room_type','host_is_superhost','instant_bookable'])])
+        ('num', StandardScaler(), ['accommodates','bedrooms']),# standardscale all numeric variables
+        ('ord', OneHotEncoder(), ['neighbourhood', 'room_type','host_is_superhost','instant_bookable'])])# one-hot encoding every categorical variables
 
 # Define the pipeline with Elastic Net regression
 elastic_net_pipeline = Pipeline(steps=[
@@ -522,7 +543,7 @@ print('Elastic Net R-squared:', r2_elastic_net)
 
 
 # %%
-
+# XGBoost Regressor model
 # Define the preprocessor
 preprocessor = ColumnTransformer(
     transformers=[
@@ -563,6 +584,7 @@ print('XGBoost Regressor RMSE:', rmse)
 print('R-squared:', r2)
 
 # %%
+# catboost Regressor model
 data_cleaned.drop(columns = 'price', inplace = True)
 y = data_cleaned[main_label].values.reshape(-1,)
 X = data_cleaned.drop([main_label], axis=1)
@@ -631,6 +653,7 @@ print("P-value:", anova_results.pvalue)
 
 # %%
 # For New York City Only!
+# Doing almost the same process as before
 data = pd.read_csv("Listings.csv", encoding='unicode_escape', low_memory=False)
 # %%
 data['city'].value_counts()
